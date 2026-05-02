@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#05050f;color:#f0f0ff;font-family:'Rajdhani',sans-serif;min-height:100vh;overflow-x:hidden}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+@keyframes glow{0%,100%{text-shadow:0 0 20px #ff2d78,0 0 40px #ff2d7844}50%{text-shadow:0 0 40px #ff2d78,0 0 80px #ff2d78}}
+@keyframes spinAnim{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+@keyframes slideIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes jackpot{0%,100%{color:#ffd700}33%{color:#ff2d78}66%{color:#00e5ff}}
+@keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.orb{font-family:'Orbitron',sans-serif}
+.btn{border:none;cursor:pointer;font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:1px;transition:all .2s;border-radius:8px}
+.btn:hover:not(:disabled){opacity:.85;transform:translateY(-2px)}
+.btn:disabled{opacity:.35;cursor:not-allowed;transform:none!important}
+.game-area{animation:slideIn .4s ease}
+.waifu-float{animation:float 3s ease-in-out infinite}
+.neon-pink{color:#ff2d78;text-shadow:0 0 20px #ff2d78}
+.neon-cyan{color:#00e5ff;text-shadow:0 0 20px #00e5ff}
+.neon-gold{color:#ffd700;text-shadow:0 0 20px #ffd700}
+.neon-green{color:#44ff88;text-shadow:0 0 20px #44ff88}
+.card-ui{border-radius:9px;display:flex;align-items:center;justify-content:center;flex-direction:column;font-weight:bold;user-select:none;transition:all .3s;flex-shrink:0;line-height:1.1}
+input[type=range]{accent-color:#ff2d78}
+input[type=number]{background:#1a1a3e;color:white;border:1px solid #ff2d78;border-radius:6px;padding:4px 8px;font-size:16px;font-family:'Rajdhani',sans-serif;width:70px}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:#0a0a20}
+::-webkit-scrollbar-thumb{background:#ff2d7866;border-radius:2px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// ── HELPERS ───────────────────────────────────────────────────
+const SUITS=['♠','♥','♦','♣'];
+const VALS=['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const RED_NOS=new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+const SYM_DISPLAY=['🍒','🍋','🍊','🍇','🔔','💎','7','⭐'];
+const SYM_PAYOUT=[5,4,3,3,10,20,50,15];
+const SYM_NAMES=['Cherry','Lemon','Orange','Grape','Bell','Diamond','LUCKY 7','Star'];
+
+function mkDeck(){
+  const d=SUITS.flatMap(s=>VALS.map(v=>({s,v})));
+  for(let i=d.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[d[i],d[j]]=[d[j],d[i]];}
+  return d;
+}
+function cardNum(c){if(['J','Q','K'].includes(c.v))return 10;if(c.v==='A')return 11;return+c.v;}
+function handVal(hand){let t=hand.reduce((a,c)=>a+cardNum(c),0);let aces=hand.filter(c=>c.v==='A').length;while(t>21&&aces--)t-=10;return t;}
+function isRed(n){return RED_NOS.has(n);}
+function rnd(arr){return arr[Math.floor(Math.random()*arr.length)];}
+function fmtMoney(n){return'$'+n.toLocaleString();}
+function btnStyle(color,pad='10px 22px'){return`background:linear-gradient(135deg,${color}22,${color}44);border:2px solid ${color};color:#fff;border-radius:8px;padding:${pad};font-size:14px;font-weight:700;cursor:pointer;letter-spacing:1px;transition:all .2s;box-shadow:0 0 15px ${color}44;font-family:'Rajdhani',sans-serif;`;}
+
+// ── WAIFU DATA ────────────────────────────────────────────────
+const MSGS={
+  welcome:["Irasshaimase~! I'm Yuki! 🌸","Welcome to ByteKasino! ✨","Let's win together! 💕"],
+  happy:["Ganbatte! You can do it! ✨","Luck is on our side~ 🌸","I believe in you! 💕"],
+  excited:["YAAAAY!! You won!! 🎉","SUGOII!! SO LUCKY!! ✨","KIMOCHI!! Amazing!! 🎊"],
+  sad:["Daijoubu... try again 😢","The house wins this one... 💧","Don't give up! 💕"],
+  nervous:["D-doki doki~ so tense! 💓","Ehh?! The stakes!! 😰","K-kyaa! I'm nervous~!"],
+  thinking:["Hmm~ think carefully... 🤔","Nani? Interesting choice...","Mou sukoshi... 👀"],
+};
+
+// ── STATE ─────────────────────────────────────────────────────
+let state={
+  balance:1000,
+  screen:'lobby',
+  mood:'welcome',
+  msg:rnd(MSGS.welcome),
+  // blackjack
+  bjDeck:[],bjPlayer:[],bjDealer:[],bjBet:50,bjPhase:'bet',bjResult:'',bjDealerShown:false,
+  // roulette
+  rlBet:50,rlType:'red',rlNumber:7,rlSpinning:false,rlResult:null,rlOutcome:'',
+  // slots
+  slReels:[0,1,2],slAnimReels:[0,1,2],slBet:25,slSpinning:false,slResult:'',
+  // hilo
+  hlDeck:[],hlCurrent:null,hlBet:50,hlResult:'',hlStreak:0,
+};
+let slotInterval=null;
+
+function setState(updates){
+  Object.assign(state,typeof updates==='function'?updates(state):updates);
+  render();
+}
+
+// ── WAIFU SVG ─────────────────────────────────────────────────
+function waifuSVG(mood){
+  const smiles={excited:'M65 120 Q82 135 99 120',happy:'M67 121 Q82 132 97 121',sad:'M67 126 Q82 118 97 126',nervous:'M70 121 Q82 125 94 121',thinking:'M68 122 Q82 129 96 122',welcome:'M67 121 Q82 132 97 121'};
+  const browsL={excited:'M50 80 Q64 73 76 79',happy:'M50 82 Q64 76 76 81',sad:'M50 80 Q64 86 76 83',nervous:'M50 80 Q64 85 76 82',thinking:'M50 82 Q64 77 76 82',welcome:'M50 82 Q64 76 76 81'};
+  const browsR={excited:'M84 79 Q96 73 110 80',happy:'M84 81 Q96 76 110 82',sad:'M84 82 Q96 86 110 80',nervous:'M84 81 Q96 85 110 80',thinking:'M84 82 Q96 77 110 82',welcome:'M84 81 Q96 76 110 82'};
+  const m=mood||'happy';
+  const mouth=smiles[m]||smiles.happy;
+  const bl=browsL[m]||browsL.happy;
+  const br=browsR[m]||browsR.happy;
+  const extras=m==='excited'?'<text x="128" y="52" font-size="18">✨</text><text x="5" y="62" font-size="16">🎉</text>'
+    :m==='sad'?'<text x="118" y="72" font-size="18">💧</text>'
+    :m==='nervous'?'<text x="128" y="65" font-size="18">💓</text>'
+    :'';
+  return `<svg viewBox="0 0 160 305" width="148" height="282" style="filter:drop-shadow(0 0 18px rgba(255,45,120,0.45))">
+  <ellipse cx="80" cy="88" rx="52" ry="60" fill="#e03085"/>
+  <path d="M30 135 Q14 215 28 305" stroke="#e03085" stroke-width="22" fill="none" stroke-linecap="round"/>
+  <path d="M130 135 Q146 215 132 305" stroke="#e03085" stroke-width="22" fill="none" stroke-linecap="round"/>
+  <rect x="68" y="136" width="24" height="28" rx="5" fill="#fce8d5"/>
+  <path d="M38 164 Q80 149 122 164 L135 305 H25 Z" fill="#0c0c28"/>
+  <path d="M80 164 L68 147 L57 164" fill="#eeeeff"/>
+  <path d="M80 164 L92 147 L103 164" fill="#eeeeff"/>
+  <path d="M76 161 L80 168 L84 161 L80 154 Z" fill="#ff2d78"/>
+  <ellipse cx="80" cy="161" rx="3" ry="3" fill="#ff88bb"/>
+  <circle cx="80" cy="183" r="2.5" fill="#ff2d78" opacity="0.65"/>
+  <circle cx="80" cy="203" r="2.5" fill="#ff2d78" opacity="0.65"/>
+  <circle cx="80" cy="223" r="2.5" fill="#ff2d78" opacity="0.65"/>
+  <ellipse cx="80" cy="101" rx="40" ry="43" fill="#fce8d5"/>
+  <ellipse cx="63" cy="101" rx="13" ry="15" fill="white"/>
+  <ellipse cx="63" cy="101" rx="9.5" ry="11.5" fill="#4466dd"/>
+  <ellipse cx="63" cy="102" rx="6.5" ry="8.5" fill="#1a2a88"/>
+  <ellipse cx="63" cy="103" rx="3.5" ry="5" fill="#080820"/>
+  <circle cx="69" cy="95" r="3.5" fill="white"/>
+  <circle cx="61" cy="93" r="2" fill="white"/>
+  <path d="M50 93 Q57 86 63 85 Q69 86 76 93" fill="#bb1166"/>
+  <ellipse cx="97" cy="101" rx="13" ry="15" fill="white"/>
+  <ellipse cx="97" cy="101" rx="9.5" ry="11.5" fill="#4466dd"/>
+  <ellipse cx="97" cy="102" rx="6.5" ry="8.5" fill="#1a2a88"/>
+  <ellipse cx="97" cy="103" rx="3.5" ry="5" fill="#080820"/>
+  <circle cx="103" cy="95" r="3.5" fill="white"/>
+  <circle cx="95" cy="93" r="2" fill="white"/>
+  <path d="M84 93 Q91 86 97 85 Q103 86 110 93" fill="#bb1166"/>
+  <path d="${bl}" stroke="#cc1166" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+  <path d="${br}" stroke="#cc1166" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+  <path d="M77 115 Q80 119 83 115" stroke="#c8a090" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+  <path d="${mouth}" stroke="#e06080" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  <ellipse cx="49" cy="116" rx="11" ry="7" fill="#ff99bb" opacity="0.42"/>
+  <ellipse cx="111" cy="116" rx="11" ry="7" fill="#ff99bb" opacity="0.42"/>
+  <path d="M32 80 Q46 41 80 39 Q114 41 128 80 Q121 106 126 123" fill="#e03085"/>
+  <path d="M32 80 Q28 98 32 123" fill="#e03085"/>
+  <path d="M47 43 Q42 74 48 96" fill="#c0206c" opacity="0.65"/>
+  <path d="M60 40 Q56 67 62 84" fill="#c0206c" opacity="0.45"/>
+  <path d="M113 43 Q118 74 112 96" fill="#c0206c" opacity="0.65"/>
+  <path d="M100 40 Q104 67 98 84" fill="#c0206c" opacity="0.45"/>
+  <rect x="43" y="65" width="16" height="8" rx="4" fill="#ff2d78"/>
+  <rect x="45" y="66.5" width="12" height="5" rx="2.5" fill="#ff99cc"/>
+  ${extras}
+</svg>`;
+}
+
+// ── CARD HTML ──────────────────────────────────────────────────
+function cardHTML(card,hidden=false,small=false){
+  const w=small?52:65,h=small?76:95;
+  if(hidden)return`<div class="card-ui" style="width:${w}px;height:${h}px;background:linear-gradient(135deg,#1a1050,#3d0a56);border:2px solid #7722cc;font-size:${small?20:28}px;box-shadow:0 4px 15px rgba(100,0,200,0.4);">🂠</div>`;
+  const red=card.s==='♥'||card.s==='♦';
+  const clr=red?'#e02040':'#111133';
+  return`<div class="card-ui" style="width:${w}px;height:${h}px;background:#f8f8ff;border:2px solid #ddd;font-size:${small?14:18}px;color:${clr};box-shadow:0 4px 15px rgba(0,0,0,0.4);">
+  <div style="font-size:${small?13:18}px;font-weight:800">${card.v}</div>
+  <div style="font-size:${small?16:22}px">${card.s}</div>
+</div>`;
+}
+
+// ── BLACKJACK LOGIC ───────────────────────────────────────────
+function bjDeal(){
+  const s=state;
+  if(s.bjBet>s.balance||s.bjBet<=0)return;
+  const d=mkDeck();
+  const p=[d[0],d[2]];const dl=[d[1],d[3]];
+  setState({bjDeck:d.slice(4),bjPlayer:p,bjDealer:dl,balance:s.balance-s.bjBet,bjPhase:'playing',bjResult:'',bjDealerShown:false,mood:'nervous',msg:"D-doki doki~ let's see those cards! 💓"});
+  if(handVal(p)===21){bjResolve(p,dl,d.slice(4),s.bjBet,true);}
+}
+
+function bjResolve(p,dl,dk,betAmt,natural=false){
+  let d2=[...dl],dk2=[...dk];
+  while(handVal(d2)<17&&dk2.length){d2.push(dk2[0]);dk2=dk2.slice(1);}
+  const pv=handVal(p),dv=handVal(d2);
+  let result='',mood='happy',msg='';
+  let balAdd=0;
+  if(pv>21){result='💥 Bust!';mood='sad';msg=rnd(MSGS.sad);}
+  else if(dv>21||pv>dv){
+    if(natural){balAdd=Math.floor(betAmt*2.5);result=`🎴 Blackjack! +${fmtMoney(Math.floor(betAmt*1.5))}`;mood='excited';msg='SUGOII!! Blackjack!! 🎉🎉';}
+    else{balAdd=betAmt*2;result=`🏆 You Win! +${fmtMoney(betAmt)}`;mood='excited';msg=rnd(MSGS.excited);}
+  }else if(pv===dv){balAdd=betAmt;result='🤝 Push!';mood='happy';msg='Push~ your bet is returned! 🌸';}
+  else{result='💔 Dealer Wins';mood='sad';msg=rnd(MSGS.sad);}
+  setState(s=>({bjDealer:d2,bjDeck:dk2,bjDealerShown:true,bjPhase:'done',bjResult:result,balance:s.balance+balAdd,mood,msg}));
+}
+
+function bjHit(){
+  const s=state;
+  const card=s.bjDeck[0];
+  const np=[...s.bjPlayer,card];
+  const nd=s.bjDeck.slice(1);
+  if(handVal(np)>21){setState({bjPlayer:np,bjDeck:nd,bjPhase:'done',bjResult:'💥 Bust!',bjDealerShown:true,mood:'sad',msg:rnd(MSGS.sad)});}
+  else if(handVal(np)===21){setState({bjPlayer:np,bjDeck:nd});bjResolve(np,s.bjDealer,nd,s.bjBet);}
+  else{setState({bjPlayer:np,bjDeck:nd,mood:'thinking',msg:rnd(MSGS.thinking)});}
+}
+
+function bjStand(){const s=state;bjResolve(s.bjPlayer,s.bjDealer,s.bjDeck,s.bjBet);}
+
+function bjDouble(){
+  const s=state;
+  if(s.bjBet>s.balance)return;
+  const card=s.bjDeck[0];
+  const np=[...s.bjPlayer,card];
+  const nd=s.bjDeck.slice(1);
+  setState(st=>({bjPlayer:np,bjDeck:nd,balance:st.balance-st.bjBet,mood:'nervous',msg:'Doubling down~!! 💓'}));
+  const ns=state;
+  bjResolve(np,ns.bjDealer,nd,ns.bjBet*2);
+}
+
+function bjReset(){setState({bjPlayer:[],bjDealer:[],bjResult:'',bjPhase:'bet',bjDealerShown:false,mood:'happy',msg:rnd(MSGS.happy)});}
+
+// ── ROULETTE LOGIC ────────────────────────────────────────────
+function rlSpin(){
+  const s=state;
+  if(s.rlBet>s.balance||s.rlSpinning)return;
+  setState(st=>({balance:st.balance-st.rlBet,rlSpinning:true,rlResult:null,rlOutcome:'',mood:'nervous',msg:"The wheel spins~! Doki doki!! 💓"}));
+  setTimeout(()=>{
+    const n=Math.floor(Math.random()*37);
+    const s2=state;
+    let win=false,payout=0;
+    if(s2.rlType==='red'&&n>0&&isRed(n)){win=true;payout=s2.rlBet*2;}
+    else if(s2.rlType==='black'&&n>0&&!isRed(n)){win=true;payout=s2.rlBet*2;}
+    else if(s2.rlType==='even'&&n>0&&n%2===0){win=true;payout=s2.rlBet*2;}
+    else if(s2.rlType==='odd'&&n%2!==0&&n>0){win=true;payout=s2.rlBet*2;}
+    else if(s2.rlType==='number'&&n===s2.rlNumber){win=true;payout=s2.rlBet*36;}
+    else if(s2.rlType==='dozen'&&Math.ceil(n/12)===1&&n>0){win=true;payout=Math.floor(s2.rlBet*3);}
+    const outcome=win?`+${fmtMoney(payout)}`:`-${fmtMoney(s2.rlBet)}`;
+    setState(st=>({rlResult:n,rlSpinning:false,rlOutcome:outcome,balance:st.balance+(win?payout:0),mood:win?'excited':'sad',msg:win?rnd(MSGS.excited):rnd(MSGS.sad)}));
+  },2200);
+}
+
+// ── SLOTS LOGIC ───────────────────────────────────────────────
+function slSpin(){
+  const s=state;
+  if(s.slBet>s.balance||s.slSpinning)return;
+  if(slotInterval)clearInterval(slotInterval);
+  setState(st=>({balance:st.balance-st.slBet,slSpinning:true,slResult:'',mood:'excited',msg:'The reels are spinning~!! 🎰'}));
+  slotInterval=setInterval(()=>{setState({slAnimReels:[Math.floor(Math.random()*8),Math.floor(Math.random()*8),Math.floor(Math.random()*8)]});},80);
+  const final=[Math.floor(Math.random()*8),Math.floor(Math.random()*8),Math.floor(Math.random()*8)];
+  setTimeout(()=>{
+    clearInterval(slotInterval);slotInterval=null;
+    const s2=state;
+    const bet=s2.slBet;
+    let result='',balAdd=0,mood='sad',msg=rnd(MSGS.sad);
+    if(final[0]===final[1]&&final[1]===final[2]){
+      const mult=SYM_PAYOUT[final[0]];
+      balAdd=bet*mult;
+      result=`🎉 ${SYM_NAMES[final[0]]} JACKPOT! ${mult}x = +${fmtMoney(balAdd)}`;
+      mood=mult>=15?'excited':'happy';
+      msg=mult>=20?'🎉🎉🎉 JACKPOT SUGOIII!!':'YATTA!! Three of a kind!! 🎊';
+    }else if(final[0]===final[1]||final[1]===final[2]||final[0]===final[2]){
+      balAdd=Math.floor(bet*1.5);
+      result=`✨ Pair! +${fmtMoney(balAdd)}`;
+      mood='happy';msg='A pair~ not bad! ✨';
+    }else{result='💔 No match';mood='sad';msg=rnd(MSGS.sad);}
+    setState(st=>({slReels:final,slAnimReels:final,slSpinning:false,slResult:result,balance:st.balance+balAdd,mood,msg}));
+  },1900);
+}
+
+// ── HI-LO LOGIC ──────────────────────────────────────────────
+function hlStart(){
+  const d=mkDeck();
+  setState({hlDeck:d.slice(1),hlCurrent:d[0],hlResult:'',hlStreak:0,mood:'thinking',msg:'Higher or Lower than this card? 🤔'});
+}
+
+function hlGuess(hi){
+  const s=state;
+  if(!s.hlCurrent||s.hlBet>s.balance)return;
+  const next=s.hlDeck[0]||mkDeck()[0];
+  const nd=s.hlDeck.slice(1).length<5?mkDeck():s.hlDeck.slice(1);
+  const cv=cardNum(s.hlCurrent),nv=cardNum(next);
+  const tie=cv===nv;
+  const correct=hi?nv>cv:nv<cv;
+  let result='',mood='sad',msg=rnd(MSGS.sad),balDelta=0,streak=0;
+  if(tie){result='🤝 Tie! Bet returned';mood='thinking';msg='A tie~! Interesting! 👀';balDelta=0;streak=s.hlStreak;}
+  else if(correct){
+    streak=s.hlStreak+1;
+    const mult=1+streak*0.5;
+    const win=Math.floor(s.hlBet*mult);
+    balDelta=win;
+    result=`✅ Correct! +${fmtMoney(win)} (${mult.toFixed(1)}x streak!)`;
+    mood='excited';msg=streak>=3?`SUGOII!! ${streak}x streak!! 🔥`:rnd(MSGS.excited);
+  }else{streak=0;result=`❌ Wrong! -${fmtMoney(s.hlBet)}`;balDelta=-s.hlBet;mood='sad';msg=rnd(MSGS.sad);}
+  setState(st=>({balance:tie?st.balance:st.balance+balDelta,hlCurrent:next,hlDeck:nd,hlResult:result,hlStreak:streak,mood,msg}));
+}
+
+// ── LOBBY ─────────────────────────────────────────────────────
+function renderLobby(){
+  const games=[
+    {id:'blackjack',name:'Blackjack',icon:'🃏',desc:'Beat the dealer to 21',color:'#00e5ff'},
+    {id:'roulette',name:'Roulette',icon:'🎡',desc:'Bet on the spinning wheel',color:'#ff2d78'},
+    {id:'slots',name:'Slots',icon:'🎰',desc:'Match symbols to win big',color:'#ffd700'},
+    {id:'hilo',name:'Hi-Lo',icon:'🎴',desc:'Higher or Lower? Chain streaks!',color:'#44ff88'},
+  ];
+  return`<div class="game-area" style="display:flex;flex-direction:column;gap:16px">
+  <div style="text-align:center;margin-bottom:4px">
+    <div class="orb" style="font-size:clamp(20px,4vw,32px);font-weight:900;background:linear-gradient(135deg,#ff2d78,#ffd700);-webkit-background-clip:text;-webkit-text-fill-color:transparent">Choose Your Game</div>
+    <div style="color:#665577;font-size:14px;margin-top:4px">Irasshaimase~ Place your bets! 🌸</div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
+    ${games.map(g=>`<button onclick="setState({screen:'${g.id}',mood:'welcome',msg:rnd(MSGS.welcome)})" class="btn" style="background:linear-gradient(135deg,${g.color}11,${g.color}22);border:2px solid ${g.color}55;border-radius:16px;padding:22px 16px;color:white;cursor:pointer;text-align:center;transition:all .3s;box-shadow:0 0 20px ${g.color}22;font-family:'Rajdhani',sans-serif;"
+    onmouseover="this.style.transform='translateY(-4px)';this.style.boxShadow='0 8px 30px ${g.color}55'"
+    onmouseout="this.style.transform='';this.style.boxShadow='0 0 20px ${g.color}22'">
+      <div style="font-size:36px;margin-bottom:8px">${g.icon}</div>
+      <div class="orb" style="font-size:clamp(12px,2.5vw,15px);font-weight:700;color:${g.color};margin-bottom:4px">${g.name}</div>
+      <div style="font-size:11px;color:#888">${g.desc}</div>
+    </button>`).join('')}
+  </div>
+</div>`;
+}
+
+// ── BLACKJACK RENDER ──────────────────────────────────────────
+function renderBJ(){
+  const s=state;
+  const pv=handVal(s.bjPlayer);const dv=handVal(s.bjDealer);
+  const rc=s.bjResult.includes('Win')||s.bjResult.includes('Black')?'#ffd700':s.bjResult.includes('Push')?'#00e5ff':'#ff4466';
+  return`<div class="game-area" style="display:flex;flex-direction:column;gap:16px;align-items:center">
+  <div style="text-align:center">
+    <div style="color:#777;font-size:12px;letter-spacing:2px;margin-bottom:6px">DEALER ${s.bjDealerShown&&s.bjDealer.length?'('+dv+')':''}</div>
+    <div style="display:flex;gap:8px;justify-content:center;min-height:97px;align-items:center">
+      ${s.bjDealer.length?s.bjDealer.map((c,i)=>cardHTML(c,!s.bjDealerShown&&i===1)).join(''):
+      '<div style="color:#333;font-size:13px;border:2px dashed #333;border-radius:9px;width:65px;height:95px;display:flex;align-items:center;justify-content:center">Dealer</div>'}
+    </div>
+  </div>
+  <div style="width:90%;height:1px;background:linear-gradient(90deg,transparent,#ff2d7866,transparent)"></div>
+  <div style="text-align:center">
+    <div style="color:#777;font-size:12px;letter-spacing:2px;margin-bottom:6px">YOU ${s.bjPlayer.length?'('+pv+')':''}</div>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;min-height:97px;align-items:center">
+      ${s.bjPlayer.length?s.bjPlayer.map(c=>cardHTML(c)).join(''):
+      '<div style="color:#333;font-size:13px;border:2px dashed #333;border-radius:9px;width:65px;height:95px;display:flex;align-items:center;justify-content:center">Place bet</div>'}
+    </div>
+  </div>
+  ${s.bjResult?`<div style="font-size:clamp(16px,3vw,22px);font-weight:bold;color:${rc};text-shadow:0 0 20px ${rc};text-align:center">${s.bjResult}</div>`:''}
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center">
+    ${s.bjPhase==='bet'?`
+      <input type="range" min="10" max="${Math.min(s.balance,500)}" step="10" value="${s.bjBet}" oninput="setState({bjBet:+this.value})"/>
+      <span class="neon-gold orb" style="min-width:72px;font-size:16px">${fmtMoney(s.bjBet)}</span>
+      <button onclick="bjDeal()" class="btn" style="${btnStyle('#ff2d78')}" ${s.balance<10?'disabled':''}>DEAL</button>
+    `:''}
+    ${s.bjPhase==='playing'?`
+      <button onclick="bjHit()" class="btn" style="${btnStyle('#00e5ff')}">HIT</button>
+      <button onclick="bjStand()" class="btn" style="${btnStyle('#ffd700')}">STAND</button>
+      ${s.bjPlayer.length===2&&s.balance>=s.bjBet?`<button onclick="bjDouble()" class="btn" style="${btnStyle('#ff8800')}">DOUBLE</button>`:''}
+    `:''}
+    ${s.bjPhase==='done'?`<button onclick="bjReset()" class="btn" style="${btnStyle('#ff2d78')}">NEW HAND</button>`:''}
+  </div>
+  <div style="font-size:12px;color:#444;text-align:center">Blackjack pays 2.5x · Dealer stands on 17</div>
+</div>`;
+}
+
+// ── ROULETTE RENDER ───────────────────────────────────────────
+function renderRL(){
+  const s=state;
+  const types=['red','black','even','odd','number','dozen'];
+  const typeColors={'red':'#cc2233','black':'#666','even':'#00e5ff','odd':'#ff8800','number':'#ffd700','dozen':'#aa44ff'};
+  // Build wheel SVG
+  let slices='';
+  for(let i=0;i<37;i++){
+    const a=(i/37)*360,a2=((i+1)/37)*360;
+    const r=85;
+    const x1=100+r*Math.cos(a*Math.PI/180),y1=100+r*Math.sin(a*Math.PI/180);
+    const x2=100+r*Math.cos(a2*Math.PI/180),y2=100+r*Math.sin(a2*Math.PI/180);
+    const fill=i===0?'#22aa55':isRed(i)?'#cc2233':'#111122';
+    slices+=`<path d="M100 100 L${x1} ${y1} A${r} ${r} 0 0 1 ${x2} ${y2} Z" fill="${fill}" stroke="#0a0a20" stroke-width="0.8"/>`;
+  }
+  // Add numbers on wheel
+  let nums='';
+  for(let i=0;i<37;i++){
+    const a=((i+0.5)/37)*360*Math.PI/180;
+    const nx=100+68*Math.cos(a),ny=100+68*Math.sin(a);
+    nums+=`<text x="${nx}" y="${ny}" text-anchor="middle" dominant-baseline="middle" font-size="4.5" fill="white" font-weight="bold" opacity="0.8">${i}</text>`;
+  }
+  const rn=s.rlResult;
+  const ballAngle=rn!==null?(rn/37)*360:0;
+  const ballRad=ballAngle*Math.PI/180;
+  const bx=100+75*Math.cos(ballRad),by=100+75*Math.sin(ballRad);
+  const oc=s.rlOutcome.startsWith('+')?'#ffd700':'#ff4466';
+  return`<div class="game-area" style="display:flex;flex-direction:column;gap:14px;align-items:center">
+  <div style="position:relative;width:200px;height:200px">
+    <svg viewBox="0 0 200 200" width="200" height="200" style="${s.rlSpinning?'animation:spinAnim 0.4s linear infinite':''}">
+      ${slices}${nums}
+      <circle cx="100" cy="100" r="26" fill="#1a1a3e" stroke="#ffd700" stroke-width="3"/>
+      <circle cx="100" cy="100" r="18" fill="#ffd70022"/>
+      <text x="100" y="107" text-anchor="middle" font-size="14" fill="#ffd700" font-weight="900" font-family="Orbitron,sans-serif">${rn!==null&&!s.rlSpinning?rn:'?'}</text>
+    </svg>
+    ${rn!==null&&!s.rlSpinning?`<div style="position:absolute;width:12px;height:12px;border-radius:50%;background:white;box-shadow:0 0 10px white;top:${by-6}px;left:${bx-6}px;pointer-events:none"></div>`:''}
+  </div>
+  ${rn!==null&&!s.rlSpinning?`<div style="text-align:center">
+    <div style="font-size:clamp(18px,4vw,26px);font-weight:bold;color:${rn===0?'#22aa55':isRed(rn)?'#ff4466':'#aaa'};text-shadow:0 0 15px currentColor">${rn} ${rn===0?'🟢':isRed(rn)?'🔴':'⚫'}</div>
+    <div style="font-size:clamp(16px,3vw,20px);font-weight:bold;color:${oc};text-shadow:0 0 15px ${oc}">${s.rlOutcome}</div>
+  </div>`:''}
+  ${s.rlSpinning?`<div style="color:#00e5ff;animation:pulse 0.5s ease-in-out infinite;font-size:16px">🎡 Spinning the wheel...</div>`:''}
+  <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center">
+    ${types.map(t=>`<button onclick="setState({rlType:'${t}'})" class="btn" style="${btnStyle(state.rlType===t?'#ffd700':'#333','6px 12px')};font-size:11px;color:${typeColors[t]};">${t.toUpperCase()}</button>`).join('')}
+  </div>
+  ${s.rlType==='number'?`<div style="display:flex;gap:8px;align-items:center">
+    <span style="color:#888;font-size:13px">Number (0-36):</span>
+    <input type="number" min="0" max="36" value="${s.rlNumber}" oninput="setState({rlNumber:Math.max(0,Math.min(36,+this.value))})"/>
+    <span style="color:#555;font-size:11px">Pays 35:1</span>
+  </div>`:''}
+  <div style="display:flex;gap:10px;align-items:center">
+    <input type="range" min="10" max="${Math.min(s.balance,500)}" step="10" value="${s.rlBet}" oninput="setState({rlBet:+this.value})"/>
+    <span class="neon-gold orb" style="min-width:72px;font-size:16px">${fmtMoney(s.rlBet)}</span>
+  </div>
+  <button onclick="rlSpin()" class="btn" style="${btnStyle('#ff2d78')}" ${s.rlSpinning||s.balance<10?'disabled':''}>
+    ${s.rlSpinning?'Spinning...':'SPIN!'}
+  </button>
+  <div style="font-size:11px;color:#333;text-align:center">Red/Black/Even/Odd: 1:1 · Dozen: 2:1 · Number: 35:1</div>
+</div>`;
+}
+
+// ── SLOTS RENDER ──────────────────────────────────────────────
+function renderSL(){
+  const s=state;
+  const rc=s.slResult.includes('JACKPOT')||s.slResult.includes('WIN')||s.slResult.includes('Pair')?'#ffd700':'#ff4466';
+  return`<div class="game-area" style="display:flex;flex-direction:column;gap:16px;align-items:center">
+  <div style="background:linear-gradient(135deg,#1a0a2e,#2d1a4e);border:3px solid #ffd700;border-radius:18px;padding:24px 32px;box-shadow:0 0 40px rgba(255,215,0,0.15)">
+    <div style="display:flex;gap:14px;justify-content:center">
+      ${s.slAnimReels.map((sym,i)=>`<div style="width:78px;height:78px;border-radius:12px;background:#0a0a1e;border:2px solid #ff2d78;display:flex;align-items:center;justify-content:center;font-size:${sym===6?30:38}px;box-shadow:${s.slSpinning?'0 0 22px rgba(255,45,120,0.6)':'0 0 8px rgba(0,0,0,0.5)'};transition:${s.slSpinning?'none':'all .3s'};font-family:'Segoe UI Emoji',sans-serif;color:${sym===6?'#ffd700':'inherit'};font-weight:${sym===6?'900':'normal'}">
+        ${SYM_DISPLAY[sym]}
+      </div>`).join('')}
+    </div>
+    <div style="height:2px;background:#ff2d78;margin:14px 0;opacity:0.5;position:relative">
+      <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#0a0a1e;color:#ff2d78;font-size:9px;padding:0 6px;letter-spacing:2px">PAY LINE</div>
+    </div>
+  </div>
+  <div style="font-size:11px;color:#555;text-align:center;line-height:2">
+    7 7 7 = <span style="color:#ffd700">50x</span> &nbsp;|&nbsp; 💎💎💎 = <span style="color:#00e5ff">20x</span> &nbsp;|&nbsp; ⭐⭐⭐ = <span style="color:#ff8800">15x</span><br/>
+    🔔🔔🔔 = <span style="color:#ff44aa">10x</span> &nbsp;|&nbsp; 🍒🍒🍒 = <span style="color:#88ff44">5x</span> &nbsp;|&nbsp; Any Pair = <span style="color:#aaa">1.5x</span>
+  </div>
+  ${s.slResult?`<div style="font-size:clamp(14px,3vw,18px);font-weight:bold;color:${rc};text-shadow:0 0 15px ${rc};text-align:center;${s.slResult.includes('JACKPOT')?'animation:jackpot 0.5s linear infinite':''}">${s.slResult}</div>`:''}
+  ${s.slSpinning?`<div style="color:#ffd700;animation:pulse 0.4s ease-in-out infinite;font-size:15px">🎰 The reels are spinning~!</div>`:''}
+  <div style="display:flex;gap:10px;align-items:center">
+    <input type="range" min="10" max="${Math.min(s.balance,500)}" step="10" value="${s.slBet}" oninput="setState({slBet:+this.value})"/>
+    <span class="neon-gold orb" style="min-width:72px;font-size:16px">${fmtMoney(s.slBet)}</span>
+  </div>
+  <button onclick="slSpin()" class="btn" style="${btnStyle('#ff2d78')}" ${s.slSpinning||s.balance<10?'disabled':''}>
+    ${s.slSpinning?'Spinning...':'🎰 SPIN!'}
+  </button>
+</div>`;
+}
+
+// ── HILO RENDER ───────────────────────────────────────────────
+function renderHL(){
+  const s=state;
+  const rc=s.hlResult.includes('✅')||s.hlResult.includes('Tie')?'#ffd700':'#ff4466';
+  return`<div class="game-area" style="display:flex;flex-direction:column;gap:14px;align-items:center">
+  <div style="color:#665577;font-size:13px;text-align:center">Guess if the next card is Higher or Lower! Chain wins for bonus multiplier!</div>
+  ${s.hlStreak>1?`<div style="color:#ffd700;font-size:14px;animation:pulse 1s ease-in-out infinite">🔥 Streak x${s.hlStreak} — ${(1+s.hlStreak*0.5).toFixed(1)}x multiplier!</div>`:''}
+  <div style="display:flex;gap:20px;align-items:center">
+    ${s.hlCurrent?cardHTML(s.hlCurrent):'<div style="width:65px;height:95px;border:2px dashed #333;border-radius:9px;display:flex;align-items:center;justify-content:center;color:#333;font-size:11px">Start!</div>'}
+    <div style="font-size:28px;color:#555">→</div>
+    <div style="width:65px;height:95px;border:2px dashed #555;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:28px;color:#444">?</div>
+  </div>
+  ${s.hlResult?`<div style="font-size:clamp(13px,2.5vw,16px);font-weight:bold;color:${rc};text-align:center">${s.hlResult}</div>`:''}
+  <div style="display:flex;gap:10px;align-items:center">
+    <input type="range" min="10" max="${Math.min(s.balance,500)}" step="10" value="${s.hlBet}" oninput="setState({hlBet:+this.value})"/>
+    <span class="neon-gold orb" style="min-width:72px;font-size:16px">${fmtMoney(s.hlBet)}</span>
+  </div>
+  ${!s.hlCurrent?`<button onclick="hlStart()" class="btn" style="${btnStyle('#44ff88')}">START GAME</button>`:`
+  <div style="display:flex;gap:12px">
+    <button onclick="hlGuess(false)" class="btn" style="${btnStyle('#3388ff')}">⬇ LOWER</button>
+    <button onclick="hlGuess(true)" class="btn" style="${btnStyle('#ff8800')}">⬆ HIGHER</button>
+  </div>
+  <button onclick="setState({hlCurrent:null,hlStreak:0,hlResult:'',mood:'happy',msg:'Starting fresh~ Good luck! 🌸'})" class="btn" style="${btnStyle('#444','6px 14px')};font-size:11px">Reset</button>
+  `}
+  <div style="font-size:11px;color:#333">A=Ace (high), J/Q/K = 10 · Ties return your bet</div>
+</div>`;
+}
+
+// ── MAIN RENDER ───────────────────────────────────────────────
+function render(){
+  const s=state;
+  const msgTxt=s.msg||rnd(MSGS[s.mood]||MSGS.happy);
+  let gameContent='';
+  if(s.screen==='lobby')gameContent=renderLobby();
+  else if(s.screen==='blackjack')gameContent=`<div><div class="orb neon-cyan" style="font-size:clamp(16px,3vw,22px);font-weight:900;text-align:center;margin-bottom:16px;letter-spacing:2px">🃏 BLACKJACK</div>${renderBJ()}</div>`;
+  else if(s.screen==='roulette')gameContent=`<div><div class="orb neon-pink" style="font-size:clamp(16px,3vw,22px);font-weight:900;text-align:center;margin-bottom:16px;letter-spacing:2px">🎡 ROULETTE</div>${renderRL()}</div>`;
+  else if(s.screen==='slots')gameContent=`<div><div class="orb neon-gold" style="font-size:clamp(16px,3vw,22px);font-weight:900;text-align:center;margin-bottom:16px;letter-spacing:2px">🎰 SLOTS</div>${renderSL()}</div>`;
+  else if(s.screen==='hilo')gameContent=`<div><div class="orb neon-green" style="font-size:clamp(16px,3vw,22px);font-weight:900;text-align:center;margin-bottom:16px;letter-spacing:2px">🎴 HI-LO</div>${renderHL()}</div>`;
+  document.getElementById('root').innerHTML=`
+<div style="min-height:100vh;display:flex;flex-direction:column">
+  <!-- TOP BAR -->
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:linear-gradient(90deg,#080820,#120828,#080820);border-bottom:1px solid #ff2d7833;position:sticky;top:0;z-index:100">
+    <div class="orb neon-pink" style="font-size:clamp(16px,3vw,22px);font-weight:900;letter-spacing:2px;animation:glow 3s ease-in-out infinite;white-space:nowrap">⭐ ByteKasino</div>
+    <div style="display:flex;align-items:center;gap:10px">
+      ${s.screen!=='lobby'?`<button onclick="setState({screen:'lobby',mood:'welcome',msg:rnd(MSGS.welcome)})" class="btn" style="${btnStyle('#666','6px 14px')};font-size:11px">◀ LOBBY</button>`:''}
+      <div class="orb neon-gold" style="font-size:clamp(14px,2.5vw,18px);font-weight:700;background:linear-gradient(135deg,#1a1a3e,#2d1a0e);border:2px solid #ffd700;border-radius:10px;padding:6px 16px;box-shadow:0 0 20px rgba(255,215,0,0.25)">${fmtMoney(s.balance)}</div>
+    </div>
+  </div>
+  <!-- MAIN -->
+  <div style="display:flex;flex:1;min-height:0">
+    <!-- GAME -->
+    <div style="flex:1;padding:18px;overflow-y:auto;min-width:0">
+      ${s.balance<=0?`<div style="text-align:center;padding:20px;margin-bottom:16px;background:linear-gradient(135deg,#2a0a0a,#1a0010);border:2px solid #ff4466;border-radius:12px">
+        <div style="font-size:22px;color:#ff4466;margin-bottom:10px">💸 You're out of chips!</div>
+        <button onclick="setState({balance:1000,mood:'excited',msg:'Welcome back~! New chips for you! 🌸'})" class="btn" style="${btnStyle('#ff2d78')}">Get $1,000 Refill</button>
+      </div>`:''}
+      ${gameContent}
+    </div>
+    <!-- WAIFU PANEL -->
+    <div style="width:clamp(160px,22vw,220px);padding:16px 12px;background:linear-gradient(180deg,#0a0518,#150a2e 50%,#0a0518);border-left:1px solid #ff2d7833;display:flex;flex-direction:column;align-items:center;gap:12px">
+      <div class="waifu-float">${waifuSVG(s.mood)}</div>
+      <div style="background:linear-gradient(135deg,#1a0a2e,#2d0a3e);border:1px solid #ff2d7866;border-radius:12px;padding:10px 12px;font-size:clamp(11px,1.5vw,13px);text-align:center;color:#f0d0ff;line-height:1.5;position:relative;word-break:break-word">
+        <div style="position:absolute;top:-7px;left:50%;transform:translateX(-50%);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:7px solid #ff2d7866"></div>
+        ${msgTxt}
+      </div>
+      <div style="text-align:center">
+        <div class="orb neon-pink" style="font-size:13px;font-weight:700">Yuki</div>
+        <div style="font-size:10px;color:#554466">Your Lucky Dealer ✨</div>
+      </div>
+      <!-- Mini stats -->
+      <div style="width:100%;background:#0a0a1e;border:1px solid #1a1a3e;border-radius:8px;padding:8px;font-size:11px;color:#444">
+        <div style="display:flex;justify-content:space-between"><span>Balance</span><span style="color:#ffd700">${fmtMoney(s.balance)}</span></div>
+        <div style="display:flex;justify-content:space-between;margin-top:3px"><span>Started</span><span style="color:#666">$1,000</span></div>
+        <div style="display:flex;justify-content:space-between;margin-top:3px"><span>Net</span><span style="color:${s.balance>=1000?'#44ff88':'#ff4466'}">${s.balance>=1000?'+':''}${fmtMoney(s.balance-1000)}</span></div>
+      </div>
+    </div>
+  </div>
+</div>`;
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>
